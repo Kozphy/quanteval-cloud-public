@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quanteval"
+version = "0.1.0"
+description = "QuantEval: reproducible benchmark reports for financial forecasting models (research evaluation, not investment advice)"
+requires-python = ">=3.10"
+license = {text = "Proprietary - Copyright (c) 2026 Kozphy. Vendored third-party code keeps its own license; see THIRD_PARTY_NOTICES.md"}
+dependencies = [
+  "numpy>=1.26,<2.4",
+  "pandas>=2.2,<3",
+  "scipy>=1.11",
+  "statsmodels>=0.14",
+  "matplotlib>=3.10",
+  "jinja2>=3.1",
+  "pyyaml>=6.0",
+  "pyarrow>=14",
+]
+
+[project.optional-dependencies]
+kronos = ["torch>=2.2", "einops==0.8.1", "huggingface_hub==0.33.1", "safetensors==0.6.2", "tqdm>=4.66"]
+pdf = ["weasyprint>=60"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+quanteval = "quanteval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+quanteval = ["report/templates/*.j2", "_vendor/kronos/LICENSE", "_vendor/kronos/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["kronos: tests that download and run Kronos-mini on CPU (slow)"]

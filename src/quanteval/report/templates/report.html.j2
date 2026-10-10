@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>{{ r.title }}</title>
+<style>
+@page { size: A4; margin: 14mm 12mm; }
+body { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 10.5px; color: #1b1b1b; max-width: 1050px; margin: 0 auto; padding: 12px; }
+h1 { font-size: 20px; margin-bottom: 2px; } h2 { font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px; margin-top: 22px; }
+h3 { font-size: 12px; margin-bottom: 4px; }
+table { border-collapse: collapse; width: 100%; margin: 6px 0 10px; font-size: 9.5px; }
+th, td { border: 1px solid #d6d6d6; padding: 3px 5px; text-align: right; } th { background: #f2f2f2; }
+td.l, th.l { text-align: left; }
+.box { border: 1px solid #c9a227; background: #fff9e6; padding: 8px 10px; margin: 8px 0; }
+.research { border: 1px dashed #888; background: #f7f7f7; padding: 8px 10px; }
+.sev-high { color: #b00020; font-weight: bold; } .sev-medium { color: #a15c00; } .sev-low, .sev-info { color: #555; }
+img { width: 100%; page-break-inside: avoid; } .muted { color: #666; } code { font-size: 9px; }
+</style></head><body>
+<h1>{{ r.title }}</h1>
+<div class="muted">QuantEval v{{ r.quanteval_version }} &middot; run <code>{{ r.run_id }}</code> &middot; generated {{ r.started_at_utc[:19] }} UTC</div>
+
+<div class="box"><b>Research evaluation only.</b> This report measures statistical properties of forecasting models on
+historical OHLCV data supplied for the evaluation. It is not investment advice, makes no statement about any security's
+future price, and contains no instructions to trade. Simulated historical results (section 6) depend on stated cost and
+execution assumptions and do not indicate future results.</div>
+
+<h2>1. Executive summary</h2>
+<ul>{% for line in summary %}<li>{{ line | safe }}</li>{% endfor %}</ul>
+
+<h2>2. Data card</h2>
+<table>
+<tr><th class="l">File</th><td class="l">{{ r.data.path.split('/')[-1] }}</td><th class="l">SHA-256</th><td class="l"><code>{{ r.data.sha256 }}</code></td></tr>
+<tr><th class="l">Instrument</th><td class="l">{{ r.data.symbol or 'n/a' }}</td><th class="l">Rows</th><td class="l">{{ r.data.rows }}</td></tr>
+<tr><th class="l">Span (UTC)</th><td class="l">{{ r.data.start[:10] }} &rarr; {{ r.data.end[:10] }}</td><th class="l">Bar spacing</th><td class="l">{{ r.data.frequency }} (median {{ (r.data.bar_seconds/3600)|round(2) }} h){% if r.data.has_weekend_bars %}, includes weekend bars{% endif %}</td></tr>
+<tr><th class="l">Columns</th><td class="l">{{ r.data.columns|join(', ') }}</td><th class="l">Provenance</th><td class="l">{{ r.data_provenance or 'not stated' }}</td></tr>
+</table>
+
+<h2>3. Protocol</h2>
+<ul>
+<li>Expanding-window walk-forward: {{ r.folds.n }} origins from {{ r.folds.first_origin_ts[:10] }} to {{ r.folds.last_origin_ts[:10] }}, step {{ r.folds.step }} bars (evaluation windows do not overlap), embargo {{ r.folds.embargo_bars }} bar(s) on parameter estimation, minimum history {{ r.config.min_history }} bars.</li>
+<li>At each origin every model receives only bars up to and including the origin; forecasts cover the next {{ r.config.horizon }} bars of <i>close</i>. Future timestamps given to Kronos are generated from the bar calendar, not read from the file.</li>
+<li>Models:<ul>{% for m in r.models %}<li><b>{{ m.name }}</b>: {{ m.description }}{% if m.model_revision %} &mdash; weights <code>{{ m.model_id }}@{{ m.model_revision[:7] }}</code>, tokenizer <code>{{ m.tokenizer_id }}@{{ m.tokenizer_revision[:7] }}</code>{% endif %}</li>{% endfor %}</ul></li>
+<li>Metrics: MAE / RMSE / MAPE over all {{ r.config.horizon }} steps; relative MAE vs naive; Diebold-Mariano test on squared errors at bar {{ r.config.horizon }} vs naive; directional accuracy of the bar-{{ r.config.horizon }} move with Wilson 95% CI and a two-sided binomial test vs 50% (origins where the model or the market shows no change are excluded).</li>
+</ul>
+
+<h2>4. Forecast accuracy (out-of-sample)</h2>
+<table>
+<tr><th class="l">Model</th><th>MAE</th><th>RMSE</th><th>MAPE</th><th>MAE / naive</th><th>DM stat</th><th>DM p</th><th>Dir. acc.</th><th>95% CI</th><th>n</th><th>p vs 50%</th></tr>
+{% for name, m in r.metrics.items() %}
+<tr><td class="l">{{ name }}</td><td>{{ m.mae|fmt }}</td><td>{{ m.rmse|fmt }}</td><td>{{ m.mape_pct|fmt(3) }}%</td>
+<td>{{ m.rel_mae_vs_naive|fmt(4) }}</td>
+<td>{{ (m.dm_vs_naive.stat if m.dm_vs_naive else None)|fmt(3) }}</td><td>{{ (m.dm_vs_naive.p_value if m.dm_vs_naive else None)|fmt(3) }}</td>
+<td>{{ m.directional.accuracy|pct }}</td><td>{% if m.directional.accuracy is not none %}{{ m.directional.ci_low|pct }}&ndash;{{ m.directional.ci_high|pct }}{% else %}n/a{% endif %}</td>
+<td>{{ m.directional.n }}</td><td>{{ m.directional.p_value_vs_50pct|fmt(3) }}</td></tr>
+{% endfor %}
+</table>
+{% if r.metrics_post_release %}
+<h3>4b. Origins after Kronos's public release ({{ r.pretraining_shadow.public_release }}) only &mdash; {{ r.metrics_post_release.n_origins }} origins</h3>
+<table>
+<tr><th class="l">Model</th><th>MAE</th><th>RMSE</th><th>MAPE</th><th>Dir. acc.</th><th>95% CI</th><th>n</th><th>p vs 50%</th></tr>
+{% for name, m in r.metrics_post_release.models.items() %}
+<tr><td class="l">{{ name }}</td><td>{{ m.mae|fmt }}</td><td>{{ m.rmse|fmt }}</td><td>{{ m.mape_pct|fmt(3) }}%</td><td>{{ m.directional.accuracy|pct }}</td>
+<td>{% if m.directional.accuracy is not none %}{{ m.directional.ci_low|pct }}&ndash;{{ m.directional.ci_high|pct }}{% else %}n/a{% endif %}</td><td>{{ m.directional.n }}</td><td>{{ m.directional.p_value_vs_50pct|fmt(3) }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+<h3>Inference latency (measured on this run's CPU)</h3>
+<table>
+<tr><th class="l">Model</th><th>forecasts</th><th>p50 ms</th><th>p95 ms</th><th>mean ms</th><th>total s</th></tr>
+{% for name, m in r.metrics.items() %}<tr><td class="l">{{ name }}</td><td>{{ m.latency.n }}</td><td>{{ m.latency.p50_ms|fmt(2) }}</td><td>{{ m.latency.p95_ms|fmt(2) }}</td><td>{{ m.latency.mean_ms|fmt(2) }}</td><td>{{ m.latency.total_s|fmt(2) }}</td></tr>{% endfor %}
+</table>
+<div class="muted">Hardware: {{ r.environment.hardware.cpu_model }}, {{ r.environment.hardware.logical_cpus }} logical CPUs, torch threads {{ r.environment.hardware.torch_threads }}.</div>
+
+<h2>5. Charts (out-of-sample)</h2>
+<img src="data:image/png;base64,{{ charts.oos_forecasts }}" alt="forecast paths">
+<img src="data:image/png;base64,{{ charts.rolling_error }}" alt="rolling error">
+<img src="data:image/png;base64,{{ charts.error_distribution }}" alt="error distribution">
+<img src="data:image/png;base64,{{ charts.directional }}" alt="directional accuracy">
+<img src="data:image/png;base64,{{ charts.latency }}" alt="latency">
+
+<h2>6. Research backtest (historical simulation, not investment advice)</h2>
+<div class="research">
+Rule evaluated for each model: at each origin, take exposure equal to the sign of the model's forecast move to bar {{ r.config.horizon }}
+({{ r.backtest.config.mode }}), entered {{ r.backtest.config.delay_bars }} bar(s) after the origin close and held for {{ r.config.horizon }} bars;
+costs {{ r.backtest.config.cost_bps_per_side }} bps per side (sensitivity at {{ r.backtest.config.cost_sensitivity_bps|join(', ') }} bps).
+No slippage model beyond the bps assumption, no funding/borrow costs, no position sizing. The section is shown only when at least
+{{ r.backtest.config.min_trades }} active non-overlapping periods exist and all leakage checks pass.
+</div>
+<table>
+<tr><th class="l">Model</th><th>Status</th><th>active / periods</th><th>gross return</th><th>net return</th><th>ann. Sharpe (net)</th><th>max DD (net)</th><th>hit rate (net)</th></tr>
+{% for name, b in r.backtest.per_model.items() %}
+{% if b.valid %}
+<tr><td class="l">{{ name }}</td><td class="l">shown</td><td>{{ b.n_active }} / {{ b.n_periods }}</td><td>{{ b.base.total_return_gross|pct }}</td><td>{{ b.base.total_return_net|pct }}</td>
+<td>{{ b.base.annualised_sharpe_net|fmt(2) }}</td><td>{{ b.base.max_drawdown_net|pct }}</td><td>{{ b.base.hit_rate_net|pct }}</td></tr>
+{% else %}
+<tr><td class="l">{{ name }}</td><td class="l" colspan="7">suppressed: {{ b.suppressed_reasons|join('; ') }}</td></tr>
+{% endif %}
+{% endfor %}
+</table>
+{% set ref = namespace(v=None) %}{% for name, b in r.backtest.per_model.items() %}{% if b.valid and ref.v is none %}{% set ref.v = b.passive_long_reference %}{% endif %}{% endfor %}
+{% if ref.v %}<div class="muted">Passive long reference over the same span (one round trip of costs): gross {{ ref.v.total_return_gross|pct }}, net {{ ref.v.total_return_net|pct }}.</div>{% endif %}
+{% if charts.research_equity %}
+<h3>Cost sensitivity (net total return)</h3>
+<table><tr><th class="l">Model</th>{% for c in r.backtest.config.cost_sensitivity_bps %}<th>{{ c }} bps</th>{% endfor %}</tr>
+{% for name, b in r.backtest.per_model.items() %}{% if b.valid %}<tr><td class="l">{{ name }}</td>{% for s in b.sensitivity %}<td>{{ s.total_return_net|pct }}</td>{% endfor %}</tr>{% endif %}{% endfor %}
+</table>
+<img src="data:image/png;base64,{{ charts.research_equity }}" alt="research equity">
+<img src="data:image/png;base64,{{ charts.cost_sensitivity }}" alt="cost sensitivity">
+{% endif %}
+
+<h2>7. Leakage and data-quality checks</h2>
+<table>
+<tr><th class="l">Check</th><th class="l">Result</th></tr>
+<tr><td class="l">Fold structure (fit end &lt; target start, no overlapping windows)</td><td class="l">{{ r.leakage.structural_fold_checks }}</td></tr>
+<tr><td class="l">Negative control: deliberately leaky model must be detected</td><td class="l">{{ 'detected (detector working)' if r.leakage.negative_control.detected else 'NOT detected' }}; max forecast change {{ r.leakage.negative_control.max_abs_diff|fmt }}</td></tr>
+{% for inv in r.leakage.future_invariance %}
+<tr><td class="l">Future-invariance: {{ inv.model }} (origins {{ inv.origins_checked|join(', ') }})</td><td class="l">{{ 'passed' if inv.passed else 'FAILED' }} (max forecast change when future bars are altered: {{ inv.max_abs_diff|fmt }})</td></tr>
+{% endfor %}
+<tr><td class="l">Pre-training window (Kronos)</td><td class="l">{% if r.pretraining_shadow.synthetic_data %}not applicable: synthetic data{% else %}{{ r.pretraining_shadow.targets_on_or_before_cutoff }} window(s) end on/before stated cut-off {{ r.pretraining_shadow.training_cutoff }}; {{ r.pretraining_shadow.origins_before_public_release }} origin(s) before / {{ r.pretraining_shadow.origins_after_public_release }} after public release {{ r.pretraining_shadow.public_release }}{% endif %}</td></tr>
+</table>
+<h3>Warnings</h3>
+{% if r.warnings %}<table><tr><th class="l">Code</th><th class="l">Severity</th><th class="l">Finding</th><th class="l">Why it matters</th></tr>
+{% for w in r.warnings %}<tr><td class="l">{{ w.code }}</td><td class="l sev-{{ w.severity }}">{{ w.severity }}</td><td class="l">{{ w.message }}</td><td class="l">{{ w.explanation }}</td></tr>{% endfor %}
+</table>{% else %}<p>No data-quality warnings.</p>{% endif %}
+
+<h2>8. Limitations</h2>
+<ul>
+<li>One instrument, one horizon, one historical period. Results may not transfer to other instruments, regimes or horizons.</li>
+<li>Kronos is evaluated zero-shot with fixed sampling settings; other settings, larger variants or fine-tuning may behave differently. Its training data is not public, so contamination cannot be ruled out for periods before its release.</li>
+<li>ARIMA uses a fixed order on log prices; no order search was performed.</li>
+<li>Statistical tests are not adjusted for multiple comparisons across models.</li>
+<li>The research backtest ignores slippage beyond the bps assumption, funding, borrow, market impact and capacity.</li>
+</ul>
+
+<h2>9. Reproducibility</h2>
+<table>
+<tr><th class="l">Run id</th><td class="l"><code>{{ r.run_id }}</code></td><th class="l">Code commit</th><td class="l"><code>{{ r.environment.git.commit }}</code>{% if r.environment.git.dirty_src %} (uncommitted changes){% endif %}</td></tr>
+<tr><th class="l">Seed</th><td class="l">{{ r.seeds.global }} (Kronos: seed + origin index)</td><th class="l">predictions.csv SHA-256</th><td class="l"><code>{{ r.artefacts['predictions.csv'] }}</code></td></tr>
+<tr><th class="l">Packages</th><td class="l" colspan="3">{% for k, v in r.environment.packages.items() %}{% if v %}{{ k }} {{ v }}; {% endif %}{% endfor %}</td></tr>
+<tr><th class="l">Timings (s)</th><td class="l" colspan="3">{% for k, v in r.timings.items() %}{{ k }}={{ v|round(2) }}; {% endfor %}</td></tr>
+</table>
+<p class="muted">The full configuration, hashes, timings and the compute-cost estimate are in <code>manifest.json</code>. Re-run with <code>quanteval reproduce --manifest manifest.json --csv &lt;same file&gt;</code>.</p>
+<p class="muted">Third-party notices: Kronos model code &copy; 2025 ShiYu, MIT License (vendored at commit 67b630e); Kronos-mini and Kronos-Tokenizer-2k weights published under MIT on Hugging Face by NeoQuasar. Citation: Shi et al., "Kronos: A Foundation Model for the Language of Financial Markets", arXiv:2508.02739.</p>
+</body></html>
