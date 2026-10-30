@@ -6,6 +6,28 @@
 
 > Research tool. **Not investment advice.** It evaluates *models*, not securities, and makes no claim that any model or strategy is profitable. See the [Disclaimer](#disclaimer).
 
+
+## Sample report (real run, synthetic data, baselines only)
+
+These charts and numbers come from running the commands below on 2026-10-30. They used the **synthetic** series from `examples/synthetic_ohlcv.py` and the **naive, drift and ARIMA baselines only**. Kronos-mini was left out because it needs a Hugging Face model download.
+
+```bash
+python examples/synthetic_ohlcv.py --out data.csv
+quanteval run --csv data.csv --models naive,drift,arima --no-pdf --out out_fast/
+```
+
+![Out-of-sample forecasts](docs/sample-run/oos_forecasts.png)
+
+| Model | MAE | RMSE | MAE vs naive | DM p-value vs naive | Directional accuracy (95% CI) |
+|---|---|---|---|---|---|
+| naive | 1.177 | 1.556 | 1.000 | – | undefined (no-change forecast) |
+| drift | 1.198 | 1.576 | 1.017 | 0.147 | 48.5% (40.2–56.9%), n=134 |
+| arima | 1.175 | 1.552 | 0.998 | 0.586 | 54.5% (46.0–62.7%), n=134 |
+
+On this synthetic random walk no model beats naive with statistical significance. That is the expected outcome, and it shows the tool reporting it honestly.
+
+**Work with me:** I run model evaluations and backtests for trading and fintech teams. **Upwork:** https://www.upwork.com/freelancers/~01f2d28a00fa4262d3
+
 ---
 
 ## What it does and why
